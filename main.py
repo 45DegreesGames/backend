@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, validator, Field
+from fastapi import Path as FastAPIPath
 import google.generativeai as genai
 import subprocess
 import os
@@ -10,13 +11,17 @@ import shutil
 from pathlib import Path
 import tempfile
 import logging
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Clave API de Gemini
-API_KEY = "AIzaSyD_W7_6maqHj09Y82ShmiEozomV-EAE1FA"
+# Clave API de Gemini desde variable de entorno
+API_KEY = os.getenv("API_KEY", "AIzaSyD_W7_6maqHj09Y82ShmiEozomV-EAE1FA")  # Valor por defecto como fallback
 
 # Configuración de Google Gemini
 genai.configure(api_key=API_KEY)
@@ -40,9 +45,15 @@ app.add_middleware(
 # Modelos de datos
 class TextoRequest(BaseModel):
     texto: str
+    
+    @validator('texto')
+    def texto_no_vacio(cls, v):
+        if not v.strip():
+            raise ValueError('El texto no puede estar vacío')
+        return v
 
 class LatexRequest(BaseModel):
-    latex: str
+    latex: str = Field(..., max_length=50000)  # Establecer un límite máximo
 
 class LatexResponse(BaseModel):
     latex: str
@@ -134,7 +145,11 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=f"Error al generar PDF: {str(e)}")
 
 @app.get("/descargar/{file_id}")
-async def descargar_pdf(file_id: str):
+async def descargar_pdf(file_id: str = FastAPIPath(..., regex=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')):
+    """
+    Permite descargar un archivo PDF generado previamente.
+    El parámetro file_id debe ser un UUID válido en formato 8-4-4-4-12.
+    """
     # Verificar si el archivo existe
     if file_id not in pdf_files:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
@@ -190,4 +205,15 @@ async def startup_event():
 # Iniciar el servidor con Uvicorn si este archivo se ejecuta directamente
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    # Usar el puerto proporcionado por la plataforma de despliegue (Render) o 8000 si es local
+    port = int(os.getenv("PORT", 8000))
+    
+    # Determinar si estamos en producción o desarrollo
+    # En entornos como Render, suele haber una variable de entorno ENVIRONMENT o similar
+    is_prod = os.getenv("ENVIRONMENT", "").lower() == "production"
+    
+    # En producción no usar reload=True ya que puede causar problemas
+    if is_prod:
+        uvicorn.run("main:app", host="0.0.0.0", port=port)
+    else:
+        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True) 
