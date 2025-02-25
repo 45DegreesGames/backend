@@ -1,0 +1,25 @@
+# Carpetas
+__pycache__/
+venv/
+env/
+temp/
+.vscode/
+.idea/
+
+# Archivos de cache
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribución / empaquetado
+.env
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Archivos generados
+*.pdf
+*.aux
+*.log
+*.out 
