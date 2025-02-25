@@ -36,7 +36,7 @@ app = FastAPI(title="Conversor de Texto a LaTeX")
 # Configurar CORS para permitir peticiones desde el frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, cambiar a la URL específica del frontend
+    allow_origins=["https://graditox.netlify.app"],  # Dominio específico del frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -205,15 +205,6 @@ async def startup_event():
 # Iniciar el servidor con Uvicorn si este archivo se ejecuta directamente
 if __name__ == "__main__":
     import uvicorn
-    # Usar el puerto proporcionado por la plataforma de despliegue (Render) o 8000 si es local
+    # Usar el puerto proporcionado por la plataforma de despliegue o 8000 si es local
     port = int(os.getenv("PORT", 8000))
-    
-    # Determinar si estamos en producción o desarrollo
-    # En entornos como Render, suele haber una variable de entorno ENVIRONMENT o similar
-    is_prod = os.getenv("ENVIRONMENT", "").lower() == "production"
-    
-    # En producción no usar reload=True ya que puede causar problemas
-    if is_prod:
-        uvicorn.run("main:app", host="0.0.0.0", port=port)
-    else:
-        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True) 
+    uvicorn.run("main:app", host="0.0.0.0", port=port) 
