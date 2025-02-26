@@ -123,12 +123,25 @@ Las siguientes variables de entorno pueden configurarse:
 | Variable | Descripción | Valor por defecto |
 |----------|-------------|-------------------|
 | API_KEY | Clave API de Gemini | - |
+| AI_PROVIDER | Proveedor de IA | gemini |
+| GEMINI_MODEL | Modelo de Gemini a usar | gemini-pro |
 | ALLOWED_ORIGINS | Orígenes permitidos para CORS | - |
 | FORCE_LATEX_ONLY_MODE | Si se debe forzar el modo solo LaTeX | False |
 | FORCE_PDF_GENERATION | Si se debe forzar la generación de PDF | False |
 | USE_SIMPLE_PDFLATEX | Usar modo simple de pdflatex | True |
 | TEMP_FILE_TTL | Tiempo de vida para archivos temporales (segundos) | 600 |
 | PORT | Puerto para el servidor | 8000 |
+
+### Modelos de IA
+
+Para la conversión de texto a LaTeX, se pueden usar diferentes modelos de Gemini:
+
+- **gemini-pro**: Modelo general recomendado para la mayoría de los casos
+- **gemini-1.5-pro**: Modelo más potente, mejor para textos complejos
+- **gemini-1.5-flash-latest**: Modelo más rápido, ideal para respuestas instantáneas
+- **gemini-2.0-flash-thinking-exp-01-21**: Modelo experimental avanzado (predeterminado actual)
+
+Para cambiar el modelo, configura la variable de entorno `GEMINI_MODEL` con el nombre del modelo deseado.
 
 ## Despliegue en Render
 
@@ -151,6 +164,20 @@ Si encuentras problemas con las dependencias durante el despliegue:
 1. Verifica que las versiones en `requirements.txt` estén disponibles en PyPI
 2. Para problemas con vertexai, asegúrate de usar la versión 1.71.1 o posterior
 3. Si usas modelos Gemini 1.5, verifica que las importaciones usen `vertexai.generative_models` en lugar de `vertexai.preview.generative_models`
+
+### Compatibilidad con versiones anteriores
+
+Para mantener la compatibilidad con frontends existentes, se incluyen endpoints adicionales:
+
+- **POST `/convertir`**: Endpoint de compatibilidad que internamente usa `/conversion/texto-a-latex`
+  ```json
+  {
+    "text": "Texto a convertir",
+    "math_mode": false
+  }
+  ```
+
+Estos endpoints de compatibilidad permiten migrar gradualmente a las nuevas rutas estructuradas.
 
 ### Errores comunes
 

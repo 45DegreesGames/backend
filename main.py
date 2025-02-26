@@ -48,6 +48,43 @@ app.include_router(health_router.router)
 app.include_router(pdf_router.router)
 app.include_router(conversion_router.router)
 
+# Endpoint de compatibilidad con frontend antiguo
+@app.post("/convertir")
+async def convertir_compat(request: Request):
+    """
+    Endpoint de compatibilidad con frontend antiguo.
+    Redirige las solicitudes a /conversion/texto-a-latex
+    """
+    from app.models.schemas import TextToLatexRequest
+    from app.services.ai_service import convert_text_to_latex
+    
+    # Obtener datos de la solicitud
+    json_data = await request.json()
+    text = json_data.get("text", "")
+    math_mode = json_data.get("math_mode", False)
+    
+    logger.info(f"Solicitud de compatibilidad a /convertir, redirigiendo a /conversion/texto-a-latex")
+    
+    try:
+        # Usar el mismo servicio que el endpoint oficial
+        latex_code = await convert_text_to_latex(text, math_mode)
+        
+        if latex_code is None:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "No se pudo generar el código LaTeX"}
+            )
+        
+        # Devolver en el formato que espera el frontend
+        return {"latex": latex_code}
+    except Exception as e:
+        error_msg = f"Error al convertir texto a LaTeX: {str(e)}"
+        logger.error(error_msg)
+        return JSONResponse(
+            status_code=500,
+            content={"error": error_msg}
+        )
+
 # Eventos de inicio y cierre
 @app.on_event("startup")
 async def startup_event():

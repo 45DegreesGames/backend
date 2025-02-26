@@ -1,5 +1,5 @@
 import google.generativeai as genai
-from app.config import API_KEY, SYSTEM_INSTRUCTION, logger
+from app.config import API_KEY, SYSTEM_INSTRUCTION, logger, GEMINI_MODEL
 
 def normalizar_latex(codigo_latex):
     """
@@ -98,7 +98,7 @@ def convertir_texto_a_latex(texto):
         genai.configure(api_key=API_KEY)
         
         # Usar GenerativeModel directamente
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
+        model = genai.GenerativeModel(model_name=GEMINI_MODEL)
         
         # Preparar la solicitud con las instrucciones del sistema
         prompt = f"{SYSTEM_INSTRUCTION}\n\n{texto}"
@@ -126,7 +126,7 @@ async def generate_content_stream(texto):
     genai.configure(api_key=API_KEY)
     
     # Crear modelo generativo
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
+    model = genai.GenerativeModel(model_name=GEMINI_MODEL)
     
     # Preparar el prompt completo
     prompt = f"{SYSTEM_INSTRUCTION}\n\n{texto}"

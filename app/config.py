@@ -28,7 +28,7 @@ API_KEY = os.getenv("API_KEY", "AIzaSyD_W7_6maqHj09Y82ShmiEozomV-EAE1FA")  # Val
 
 # Configuración de IA
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")  # gemini, openai, etc.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-pro")  # gemini-pro, gemini-1.5-pro, etc.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-thinking-exp-01-21")  # valor personalizado para el usuario
 TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "30"))
 
 # Directorio para almacenar archivos temporales
