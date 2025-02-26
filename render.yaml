@@ -3,9 +3,12 @@ services:
     name: pitorro-backend
     env: python
     buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --log-level info
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.0
       - key: PORT
-        value: 10000 
+        value: 10000
+      - key: ENVIRONMENT
+        value: production
+    port: 10000 

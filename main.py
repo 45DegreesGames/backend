@@ -17,8 +17,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuración de logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+logger.info("Iniciando aplicación")
 
 # Clave API de Gemini desde variable de entorno
 API_KEY = os.getenv("API_KEY", "AIzaSyD_W7_6maqHj09Y82ShmiEozomV-EAE1FA")  # Valor por defecto como fallback
@@ -78,6 +79,16 @@ Tu única función es transformar cualquier texto que se te proporcione en un do
 @app.get("/")
 async def read_root():
     return {"mensaje": "API del Conversor de Texto a LaTeX"}
+
+@app.get("/health")
+async def health_check():
+    """Endpoint para verificar que el servidor está funcionando correctamente"""
+    return {
+        "status": "healthy",
+        "version": "1.0.0",
+        "port": os.getenv("PORT", "no definido"),
+        "environment": os.getenv("ENVIRONMENT", "desarrollo")
+    }
 
 @app.post("/convertir", response_model=LatexResponse)
 async def convertir_texto(request: TextoRequest):
@@ -205,6 +216,8 @@ async def startup_event():
 # Iniciar el servidor con Uvicorn si este archivo se ejecuta directamente
 if __name__ == "__main__":
     import uvicorn
-    # Usar el puerto proporcionado por la plataforma de despliegue o 8000 si es local
-    port = int(os.getenv("PORT", 8000))
+    # Usar el puerto proporcionado por la plataforma de despliegue o 10000 si es local
+    # Render espera 10000 como puerto predeterminado
+    port = int(os.getenv("PORT", 10000))
+    logger.info(f"Iniciando servidor en el puerto {port}")
     uvicorn.run("main:app", host="0.0.0.0", port=port) 
