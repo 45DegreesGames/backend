@@ -52,7 +52,7 @@ def normalizar_latex(codigo_latex):
     # Si tiene \documentclass pero faltan begin/end document
     elif tiene_documentclass and not (tiene_begin_document and tiene_end_document):
         # Buscar dónde insertar \begin{document}
-        lineas = codigo_trim.split('\n')
+        lineas = codigo_trim.splitlines()
         preambulo = []
         contenido = []
         

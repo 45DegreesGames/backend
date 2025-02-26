@@ -30,7 +30,7 @@ def is_pdflatex_available():
                                       timeout=5)  # Timeout para evitar bloqueos
                 
                 if result.returncode == 0:
-                    logger.info(f"✅ pdflatex encontrado en: {path} - Versión: {result.stdout.split('\n')[0] if result.stdout else 'desconocida'}")
+                    logger.info(f"✅ pdflatex encontrado en: {path} - Versión: {result.stdout.splitlines()[0] if result.stdout else 'desconocida'}")
                     pdflatex_available = True
                     return True
                 else:
@@ -93,7 +93,7 @@ def verify_pdflatex_paths():
             resultados.append({
                 "ruta": ruta,
                 "existe": proceso.returncode == 0,
-                "mensaje": proceso.stdout.split('\n')[0] if proceso.returncode == 0 else proceso.stderr
+                "mensaje": proceso.stdout.splitlines()[0] if proceso.returncode == 0 else proceso.stderr
             })
         except FileNotFoundError:
             resultados.append({
@@ -146,7 +146,7 @@ def diagnosticar_pdflatex():
                             check=True,
                             timeout=5
                         )
-                        primera_linea = version_check.stdout.split('\n')[0]
+                        primera_linea = version_check.stdout.splitlines()[0]
                         logger.info(f"Versión: {primera_linea}")
                         diagnóstico["pdflatex"]["version"] = primera_linea
                         break

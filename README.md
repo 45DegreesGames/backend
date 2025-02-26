@@ -157,6 +157,7 @@ Si encuentras problemas con las dependencias durante el despliegue:
 - **Error de API_KEY**: Asegúrate de configurar una API_KEY válida para Google Gemini
 - **pdflatex no disponible**: La aplicación funcionará en modo solo LaTeX, pero no generará PDFs
 - **Problemas de CORS**: Configura correctamente ALLOWED_ORIGINS para tu frontend
+- **SyntaxError en f-strings**: Si encuentras un error de sintaxis relacionado con f-strings que contienen caracteres de escape (`\n`, `\t`, etc.), reemplaza `split('\n')` con `splitlines()` o utiliza variables intermedias
 
 ## Licencia
 
