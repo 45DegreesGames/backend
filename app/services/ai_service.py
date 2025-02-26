@@ -2,7 +2,7 @@ import os
 import json
 import aiohttp
 import vertexai
-from vertexai.preview.generative_models import GenerativeModel
+from vertexai.generative_models import GenerativeModel
 from google.api_core.exceptions import ResourceExhausted, GoogleAPIError
 
 from app.config import logger, API_KEY, SYSTEM_INSTRUCTION, AI_PROVIDER, GEMINI_MODEL, TIMEOUT_SECONDS

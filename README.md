@@ -15,6 +15,7 @@ API para convertir texto a LaTeX y generar PDF, con soporte de IA para la conver
 - Python 3.8 o superior
 - pdflatex (opcional, para generación de PDFs)
 - Clave de API de Google Gemini (para la conversión de texto a LaTeX)
+- vertexai 1.71.1 y otras dependencias (ver requirements.txt)
 
 ## Instalación
 
@@ -140,6 +141,22 @@ Este servicio está diseñado para desplegarse fácilmente en [Render](https://r
    - Build Command: `pip install -r requirements.txt`
    - Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 4. Agregar las variables de entorno necesarias
+
+## Solución de problemas
+
+### Problemas de dependencias
+
+Si encuentras problemas con las dependencias durante el despliegue:
+
+1. Verifica que las versiones en `requirements.txt` estén disponibles en PyPI
+2. Para problemas con vertexai, asegúrate de usar la versión 1.71.1 o posterior
+3. Si usas modelos Gemini 1.5, verifica que las importaciones usen `vertexai.generative_models` en lugar de `vertexai.preview.generative_models`
+
+### Errores comunes
+
+- **Error de API_KEY**: Asegúrate de configurar una API_KEY válida para Google Gemini
+- **pdflatex no disponible**: La aplicación funcionará en modo solo LaTeX, pero no generará PDFs
+- **Problemas de CORS**: Configura correctamente ALLOWED_ORIGINS para tu frontend
 
 ## Licencia
 
