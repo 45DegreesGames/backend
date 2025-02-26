@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, validator, Field
 from fastapi import Path as FastAPIPath
 import google.generativeai as genai
+from google.generativeai import types
 import subprocess
 import os
 import uuid
@@ -93,14 +94,40 @@ async def health_check():
 @app.post("/convertir", response_model=LatexResponse)
 async def convertir_texto(request: TextoRequest):
     try:
-        # Configurar el modelo generativo
-        model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash-thinking-exp",
-            system_instruction=SYSTEM_INSTRUCTION
+        # Crear un cliente de Gemini
+        client = genai.Client(api_key=API_KEY)
+        
+        # Definir el modelo a utilizar
+        model_name = "gemini-2.0-flash-thinking-exp-01-21"
+        
+        # Preparar el contenido de la solicitud
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=request.texto)
+                ]
+            )
+        ]
+        
+        # Configurar la generación de contenido
+        generate_content_config = types.GenerateContentConfig(
+            temperature=0.1,  # Baja temperatura para respuestas más deterministas
+            top_p=0.95,
+            top_k=64,
+            max_output_tokens=65536,
+            response_mime_type="text/plain",
+            system_instruction=[
+                types.Part.from_text(text=SYSTEM_INSTRUCTION)
+            ]
         )
         
-        # Generar respuesta
-        response = model.generate_content(request.texto)
+        # Generar el contenido
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=generate_content_config
+        )
         
         # Extraer el código LaTeX generado
         latex_code = response.text
@@ -212,6 +239,60 @@ async def startup_event():
         logger.info("Limpieza completada")
     except Exception as e:
         logger.error(f"Error durante la limpieza inicial: {str(e)}")
+
+async def content_generator(request_text, api_key):
+    """Generador de contenido para streaming de respuestas."""
+    # Crear un cliente de Gemini
+    client = genai.Client(api_key=api_key)
+    
+    # Definir el modelo a utilizar
+    model_name = "gemini-2.0-flash-thinking-exp-01-21"
+    
+    # Preparar el contenido de la solicitud
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(text=request_text)
+            ]
+        )
+    ]
+    
+    # Configurar la generación de contenido
+    generate_content_config = types.GenerateContentConfig(
+        temperature=0.1,
+        top_p=0.95,
+        top_k=64,
+        max_output_tokens=65536,
+        response_mime_type="text/plain",
+        system_instruction=[
+            types.Part.from_text(text=SYSTEM_INSTRUCTION)
+        ]
+    )
+    
+    # Generar el contenido en streaming
+    stream = client.models.generate_content_stream(
+        model=model_name,
+        contents=contents,
+        config=generate_content_config
+    )
+    
+    # Devolver chunks de respuesta
+    for chunk in stream:
+        if chunk.text:
+            yield chunk.text
+
+@app.post("/convertir-stream")
+async def convertir_texto_stream(request: TextoRequest):
+    """Endpoint para convertir texto a LaTeX con streaming de respuesta."""
+    try:
+        return StreamingResponse(
+            content_generator(request.texto, API_KEY),
+            media_type="text/plain"
+        )
+    except Exception as e:
+        logger.error(f"Error al convertir texto (streaming): {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en la conversión: {str(e)}")
 
 # Iniciar el servidor con Uvicorn si este archivo se ejecuta directamente
 if __name__ == "__main__":
