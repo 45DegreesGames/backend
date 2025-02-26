@@ -111,9 +111,41 @@ async def convertir_texto(request: TextoRequest):
         logger.error(f"Error al convertir texto: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error en la conversión: {str(e)}")
 
+# Verificar disponibilidad de pdflatex al inicio
+def is_pdflatex_available():
+    try:
+        result = subprocess.run(["pdflatex", "--version"], 
+                              capture_output=True, 
+                              text=True, 
+                              check=False)
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+# Verificar al inicio de la aplicación
+PDFLATEX_AVAILABLE = is_pdflatex_available()
+logger.info(f"pdflatex disponible: {PDFLATEX_AVAILABLE}")
+
 @app.post("/generar-pdf", response_model=PDFResponse)
 async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
     try:
+        # Verificar si pdflatex está disponible
+        if not PDFLATEX_AVAILABLE:
+            # Generar un ID único para el archivo
+            file_id = str(uuid.uuid4())
+            
+            # Guardar el código LaTeX en memoria
+            pdf_files[file_id] = {
+                "latex": request.latex,
+                "is_latex_only": True
+            }
+            
+            # Programar la eliminación después de 10 minutos
+            background_tasks.add_task(eliminar_archivo_temporal, file_id, 600)
+            
+            return {"id": file_id}
+        
+        # Código original para generar PDF si pdflatex está disponible
         # Generar un ID único para el archivo
         file_id = str(uuid.uuid4())
         
@@ -142,7 +174,8 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
             # Guardar la ruta del PDF generado
             pdf_files[file_id] = {
                 "path": str(pdf_path),
-                "compile_dir": str(compile_dir)
+                "compile_dir": str(compile_dir),
+                "is_latex_only": False
             }
             
             # Programar la eliminación del archivo después de 10 minutos
@@ -160,13 +193,33 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
 async def descargar_pdf(file_id: str = FastAPIPath(..., regex=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')):
     """
     Permite descargar un archivo PDF generado previamente.
+    Si pdflatex no está disponible, devuelve el código LaTeX como archivo .tex.
     El parámetro file_id debe ser un UUID válido en formato 8-4-4-4-12.
     """
     # Verificar si el archivo existe
     if file_id not in pdf_files:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     
-    pdf_path = pdf_files[file_id]["path"]
+    info = pdf_files[file_id]
+    
+    # Manejar el caso de solo código LaTeX (sin PDF)
+    if info.get("is_latex_only", False):
+        # Crear un archivo temporal con el código LaTeX
+        latex_content = info["latex"]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".tex", mode="w", encoding="utf-8") as f:
+            f.write(latex_content)
+            temp_file_path = f.name
+        
+        # Devolver el archivo .tex
+        return FileResponse(
+            path=temp_file_path,
+            filename="documento.tex",
+            media_type="application/x-tex",
+            background=BackgroundTasks().add_task(os.unlink, temp_file_path)  # Eliminar después de enviar
+        )
+    
+    # Caso normal: devolver el PDF
+    pdf_path = info["path"]
     
     # Verificar si el archivo existe en el sistema de archivos
     if not os.path.isfile(pdf_path):
@@ -188,12 +241,15 @@ async def eliminar_archivo_temporal(file_id: str, delay_seconds: int = 600):
     
     if file_id in pdf_files:
         try:
-            # Eliminar el directorio de compilación completo
-            compile_dir = pdf_files[file_id]["compile_dir"]
-            if os.path.isdir(compile_dir):
-                shutil.rmtree(compile_dir)
+            info = pdf_files[file_id]
             
-            # Eliminar la entrada del diccionario
+            # Si es un archivo PDF, eliminar el directorio de compilación
+            if not info.get("is_latex_only", False):
+                compile_dir = info["compile_dir"]
+                if os.path.isdir(compile_dir):
+                    shutil.rmtree(compile_dir)
+            
+            # Eliminar la entrada del diccionario en cualquier caso
             del pdf_files[file_id]
             logger.info(f"Archivo temporal {file_id} eliminado correctamente")
         except Exception as e:
@@ -244,6 +300,14 @@ async def convertir_texto_stream(request: TextoRequest):
     except Exception as e:
         logger.error(f"Error al convertir texto (streaming): {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error en la conversión: {str(e)}")
+
+@app.get("/pdflatex-status")
+async def pdflatex_status():
+    """Endpoint para verificar si pdflatex está disponible en el sistema"""
+    return {
+        "pdflatex_available": PDFLATEX_AVAILABLE,
+        "mode": "PDF generation" if PDFLATEX_AVAILABLE else "LaTeX only (no PDF)"
+    }
 
 # Iniciar el servidor con Uvicorn si este archivo se ejecuta directamente
 if __name__ == "__main__":
