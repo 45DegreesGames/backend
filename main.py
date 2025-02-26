@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse
 from pydantic import BaseModel, validator, Field
 from fastapi import Path as FastAPIPath
 import google.generativeai as genai
@@ -234,9 +234,11 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
         # Normalizar el código LaTeX para asegurar la estructura correcta
         latex_normalizado = normalizar_latex(request.latex)
         
+        logger.info("Generando PDF con código LaTeX normalizado")
+        
         # Verificar si pdflatex está disponible o si forzamos la generación
         if not (PDFLATEX_AVAILABLE or FORCE_PDF_GENERATION):
-            # Solo en caso de que realmente no queramos generar PDFs
+            logger.warning("pdflatex no disponible y no se fuerza generación - devolviendo solo LaTeX")
             file_id = str(uuid.uuid4())
             pdf_files[file_id] = {
                 "latex": latex_normalizado,
@@ -247,6 +249,7 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
         
         # Intentar generar el PDF en todos los casos
         file_id = str(uuid.uuid4())
+        logger.info(f"Generando PDF con ID: {file_id}")
         
         # Crear un directorio temporal para la compilación
         compile_dir = temp_dir / file_id
@@ -259,39 +262,51 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
         
         logger.info(f"Archivo LaTeX guardado en: {tex_file_path}")
         
+        # Primero siempre guardar el LaTeX (como respaldo)
+        pdf_files[file_id] = {
+            "latex": latex_normalizado,
+            "is_latex_only": True,  # Por defecto asumimos solo LaTeX hasta que se genere el PDF
+            "compile_dir": str(compile_dir)
+        }
+        
         # Determinar el comando de pdflatex a utilizar
+        pdflatex_cmd = ["pdflatex"]
+        
         if USE_SIMPLE_PDFLATEX:
             # Modo simplificado - una sola pasada, menos opciones
-            pdflatex_cmd = [
-                "pdflatex",
+            pdflatex_cmd.extend([
                 "-interaction=nonstopmode",
                 "-output-directory", str(compile_dir),
                 "-no-shell-escape",  # Más seguro
                 str(tex_file_path)
-            ]
+            ])
         else:
             # Modo normal
-            pdflatex_cmd = [
-                "pdflatex",
+            pdflatex_cmd.extend([
                 "-interaction=nonstopmode",
                 "-output-directory", str(compile_dir),
                 str(tex_file_path)
-            ]
+            ])
             
         logger.info(f"Ejecutando: {' '.join(pdflatex_cmd)}")
         
         try:
-            # Primera pasada de pdflatex
+            # Primera pasada de pdflatex con timeout por seguridad
             process = subprocess.run(
                 pdflatex_cmd,
                 check=True,
-                capture_output=True
+                capture_output=True,
+                timeout=30  # Máximo 30 segundos
             )
             
             # Registrar stdout y stderr para diagnóstico
-            logger.info(f"pdflatex stdout: {process.stdout.decode('utf-8', errors='replace')[:500]}...")
-            if process.stderr:
-                logger.warning(f"pdflatex stderr: {process.stderr.decode('utf-8', errors='replace')}")
+            stdout_text = process.stdout.decode('utf-8', errors='replace')
+            stderr_text = process.stderr.decode('utf-8', errors='replace') if process.stderr else ""
+            
+            logger.info(f"pdflatex exitoso con código: {process.returncode}")
+            logger.info(f"pdflatex stdout: {stdout_text[:300]}...")
+            if stderr_text:
+                logger.warning(f"pdflatex stderr: {stderr_text}")
             
             # Si no usamos el modo simple, ejecutamos una segunda pasada para referencias
             if not USE_SIMPLE_PDFLATEX:
@@ -299,19 +314,21 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
                 subprocess.run(
                     pdflatex_cmd,
                     check=True,
-                    capture_output=True
+                    capture_output=True,
+                    timeout=30
                 )
             
             # Verificar si se generó el PDF
             pdf_path = compile_dir / "documento.pdf"
             logger.info(f"Buscando PDF en: {pdf_path}")
             
-            if pdf_path.exists():
-                logger.info(f"PDF generado correctamente: {pdf_path}")
+            if pdf_path.exists() and pdf_path.stat().st_size > 0:
+                logger.info(f"PDF generado correctamente: {pdf_path} ({pdf_path.stat().st_size} bytes)")
                 pdf_files[file_id] = {
                     "path": str(pdf_path),
                     "compile_dir": str(compile_dir),
-                    "is_latex_only": False
+                    "is_latex_only": False,
+                    "latex": latex_normalizado  # Guardamos también el LaTeX por si acaso
                 }
             else:
                 logger.warning(f"PDF no encontrado en la ruta esperada: {pdf_path}")
@@ -319,31 +336,42 @@ async def generar_pdf(request: LatexRequest, background_tasks: BackgroundTasks):
                 pdf_files_in_dir = list(compile_dir.glob("*.pdf"))
                 if pdf_files_in_dir:
                     pdf_path = pdf_files_in_dir[0]
-                    logger.info(f"Se encontró un PDF alternativo: {pdf_path}")
+                    logger.info(f"Se encontró un PDF alternativo: {pdf_path} ({pdf_path.stat().st_size} bytes)")
                     pdf_files[file_id] = {
                         "path": str(pdf_path),
                         "compile_dir": str(compile_dir),
-                        "is_latex_only": False
+                        "is_latex_only": False,
+                        "latex": latex_normalizado
                     }
                 else:
-                    # Si no hay PDF, caer en modo LaTeX
+                    # Buscar archivo de log para diagnóstico
+                    log_path = compile_dir / "documento.log"
+                    if log_path.exists():
+                        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                            log_content = f.read()
+                            # Mostrar las últimas líneas donde suelen estar los errores
+                            log_error = log_content[-500:] if len(log_content) > 500 else log_content
+                            logger.error(f"Error en compilación LaTeX (del log): {log_error}")
+                    
+                    # Si no hay PDF, mantenemos el modo LaTeX
                     logger.warning("No se pudo generar el PDF, devolviendo modo LaTeX")
-                    pdf_files[file_id] = {
-                        "latex": latex_normalizado,
-                        "is_latex_only": True
-                    }
+                    # pdf_files[file_id] ya está configurado como "is_latex_only": True
             
             # Programar la eliminación del archivo después de 10 minutos
             background_tasks.add_task(eliminar_archivo_temporal, file_id, 600)
             
             return {"id": file_id}
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error al compilar LaTeX: {e.stderr.decode('utf-8', errors='replace')}")
-            # En caso de error, también devolvemos el código LaTeX
-            pdf_files[file_id] = {
-                "latex": latex_normalizado,
-                "is_latex_only": True
-            }
+            logger.error(f"Error al compilar LaTeX: {e.returncode}")
+            logger.error(f"Error stdout: {e.stdout.decode('utf-8', errors='replace')[:300]}...")
+            logger.error(f"Error stderr: {e.stderr.decode('utf-8', errors='replace')}")
+            # En caso de error, mantenemos el modo LaTeX
+            # pdf_files[file_id] ya está configurado adecuadamente
+            background_tasks.add_task(eliminar_archivo_temporal, file_id, 600)
+            return {"id": file_id}
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout al ejecutar pdflatex (excedió 30 segundos)")
+            # En caso de timeout, mantenemos el modo LaTeX
             background_tasks.add_task(eliminar_archivo_temporal, file_id, 600)
             return {"id": file_id}
     except Exception as e:
@@ -370,33 +398,49 @@ async def descargar_pdf(file_id: str = FastAPIPath(..., regex=r'^[0-9a-f]{8}-[0-
         pdf_path = info["path"]
         logger.info(f"Intentando devolver PDF: {pdf_path}")
         
-        # Verificar si el archivo existe en el sistema de archivos
-        if os.path.isfile(pdf_path):
-            logger.info(f"Devolviendo PDF: {pdf_path}")
-            return FileResponse(
-                path=pdf_path, 
-                filename="documento.pdf", 
-                media_type="application/pdf"
-            )
+        # Verificar si el archivo existe en el sistema de archivos y tiene tamaño válido
+        if os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 100:  # Al menos 100 bytes
+            logger.info(f"Devolviendo PDF: {pdf_path} ({os.path.getsize(pdf_path)} bytes)")
+            try:
+                return FileResponse(
+                    path=pdf_path, 
+                    filename="documento.pdf", 
+                    media_type="application/pdf"
+                )
+            except Exception as e:
+                logger.error(f"Error al devolver PDF: {str(e)}")
+                # Continuamos para caer en el fallback de LaTeX
         else:
-            logger.warning(f"El archivo PDF no existe en el sistema: {pdf_path}")
+            logger.warning(f"El archivo PDF no existe o es demasiado pequeño: {pdf_path}")
     
     # Si llegamos aquí, no hay PDF o no se encontró el archivo
     # Manejar el caso de solo código LaTeX o fallback a LaTeX
     if "latex" in info:
         logger.info(f"Devolviendo archivo LaTeX para {file_id}")
         latex_content = info["latex"]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".tex", mode="w", encoding="utf-8") as f:
-            f.write(latex_content)
-            temp_file_path = f.name
         
-        # Devolver el archivo .tex
-        return FileResponse(
-            path=temp_file_path,
-            filename="documento.tex",
-            media_type="application/x-tex",
-            background=BackgroundTasks().add_task(os.unlink, temp_file_path)  # Eliminar después de enviar
-        )
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".tex", mode="w", encoding="utf-8") as f:
+                f.write(latex_content)
+                temp_file_path = f.name
+            
+            # Devolver el archivo .tex
+            background_tasks = BackgroundTasks()
+            background_tasks.add_task(os.unlink, temp_file_path)  # Eliminar después de enviar
+            
+            return FileResponse(
+                path=temp_file_path,
+                filename="documento.tex",
+                media_type="application/x-tex",
+                background=background_tasks
+            )
+        except Exception as e:
+            logger.error(f"Error al crear archivo LaTeX temporal: {str(e)}")
+            # Como último recurso, devolver el contenido LaTeX directamente
+            return PlainTextResponse(
+                content=latex_content,
+                headers={"Content-Disposition": "attachment; filename=documento.tex"}
+            )
     
     # Si llegamos aquí, hay algún problema con los datos
     logger.error(f"Datos inconsistentes para {file_id}: {info}")
@@ -506,7 +550,9 @@ def diagnosticar_pdflatex():
                                                 capture_output=True, text=True, check=False)
                     logger.info(f"{cmd} es ejecutable: {version_check.returncode == 0}")
                     if version_check.stdout:
-                        logger.info(f"Versión: {version_check.stdout.split('\\n')[0]}")
+                        # Corregir el problema con el backslash en f-string
+                        primera_linea = version_check.stdout.split('\n')[0]
+                        logger.info(f"Versión: {primera_linea}")
                 except Exception as e:
                     logger.error(f"Error al ejecutar {cmd}: {str(e)}")
         
@@ -640,6 +686,106 @@ async def ver_archivo_info(file_id: str = FastAPIPath(..., regex=r'^[0-9a-f]{8}-
             info["error_listar_directorio"] = str(e)
     
     return info
+
+@app.get("/test-pdflatex")
+async def test_pdflatex():
+    """
+    Endpoint de diagnóstico que intenta crear un PDF muy simple para verificar que pdflatex
+    está configurado correctamente.
+    """
+    resultados = {
+        "pdflatex_disponible": PDFLATEX_AVAILABLE,
+        "forzar_generacion_pdf": FORCE_PDF_GENERATION,
+        "modo_simple": USE_SIMPLE_PDFLATEX,
+        "pasos": []
+    }
+    
+    try:
+        # Paso 1: Crear un directorio de prueba
+        resultados["pasos"].append({"paso": 1, "descripcion": "Crear directorio de prueba", "estado": "iniciando"})
+        test_dir = temp_dir / "test-pdflatex"
+        if test_dir.exists():
+            shutil.rmtree(test_dir)
+        test_dir.mkdir(exist_ok=True)
+        resultados["pasos"][-1]["estado"] = "completado"
+        resultados["test_dir"] = str(test_dir)
+        
+        # Paso 2: Crear un documento LaTeX mínimo
+        resultados["pasos"].append({"paso": 2, "descripcion": "Crear documento LaTeX mínimo", "estado": "iniciando"})
+        minimal_latex = r"""
+\documentclass{article}
+\begin{document}
+Documento de prueba para verificar que pdflatex funciona correctamente.
+\end{document}
+"""
+        tex_file_path = test_dir / "test.tex"
+        with open(tex_file_path, "w", encoding="utf-8") as f:
+            f.write(minimal_latex)
+        resultados["pasos"][-1]["estado"] = "completado"
+        resultados["archivo_tex"] = str(tex_file_path)
+        
+        # Paso 3: Ejecutar pdflatex
+        resultados["pasos"].append({"paso": 3, "descripcion": "Ejecutar pdflatex", "estado": "iniciando"})
+        cmd = [
+            "pdflatex",
+            "-interaction=nonstopmode",
+            "-output-directory", str(test_dir),
+            "-no-shell-escape",
+            str(tex_file_path)
+        ]
+        resultados["comando"] = " ".join(cmd)
+        
+        try:
+            process = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                timeout=30  # Timeout de 30 segundos
+            )
+            resultados["pasos"][-1]["estado"] = "completado"
+            resultados["exit_code"] = process.returncode
+            resultados["stdout"] = process.stdout.decode('utf-8', errors='replace')[:300] + "..."  # Primeros 300 caracteres
+            if process.stderr:
+                resultados["stderr"] = process.stderr.decode('utf-8', errors='replace')
+        except subprocess.CalledProcessError as e:
+            resultados["pasos"][-1]["estado"] = "error"
+            resultados["exit_code"] = e.returncode
+            resultados["stdout"] = e.stdout.decode('utf-8', errors='replace')[:300] + "..."
+            resultados["stderr"] = e.stderr.decode('utf-8', errors='replace')
+        except subprocess.TimeoutExpired:
+            resultados["pasos"][-1]["estado"] = "timeout"
+            resultados["error"] = "El comando pdflatex excedió el tiempo de espera (30s)"
+        
+        # Paso 4: Verificar si se generó el PDF
+        resultados["pasos"].append({"paso": 4, "descripcion": "Verificar PDF generado", "estado": "iniciando"})
+        pdf_path = test_dir / "test.pdf"
+        resultados["pdf_existe"] = pdf_path.exists()
+        
+        if pdf_path.exists():
+            resultados["pasos"][-1]["estado"] = "completado"
+            resultados["pdf_path"] = str(pdf_path)
+            resultados["pdf_size"] = pdf_path.stat().st_size
+            resultados["conclusion"] = "PDF generado correctamente"
+        else:
+            resultados["pasos"][-1]["estado"] = "error"
+            resultados["conclusion"] = "No se pudo generar el PDF"
+            
+            # Comprobar si hay archivos de log
+            log_path = test_dir / "test.log"
+            if log_path.exists():
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    log_content = f.read()
+                    # Mostrar las últimas líneas donde suelen estar los errores
+                    resultados["log_ultimas_lineas"] = log_content[-1000:] if len(log_content) > 1000 else log_content
+            
+            # Listar archivos en el directorio
+            resultados["archivos_generados"] = [f.name for f in test_dir.iterdir() if f.is_file()]
+            
+    except Exception as e:
+        resultados["error_general"] = str(e)
+        resultados["conclusion"] = "Error durante la prueba de pdflatex"
+    
+    return resultados
 
 # Iniciar el servidor con Uvicorn si este archivo se ejecuta directamente
 if __name__ == "__main__":
