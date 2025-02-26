@@ -94,40 +94,14 @@ async def health_check():
 @app.post("/convertir", response_model=LatexResponse)
 async def convertir_texto(request: TextoRequest):
     try:
-        # Crear un cliente de Gemini
-        client = genai.Client(api_key=API_KEY)
+        # Usar GenerativeModel directamente (versión 0.4.0)
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
         
-        # Definir el modelo a utilizar
-        model_name = "gemini-2.0-flash-thinking-exp-01-21"
-        
-        # Preparar el contenido de la solicitud
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=request.texto)
-                ]
-            )
-        ]
-        
-        # Configurar la generación de contenido
-        generate_content_config = types.GenerateContentConfig(
-            temperature=0.1,  # Baja temperatura para respuestas más deterministas
-            top_p=0.95,
-            top_k=64,
-            max_output_tokens=65536,
-            response_mime_type="text/plain",
-            system_instruction=[
-                types.Part.from_text(text=SYSTEM_INSTRUCTION)
-            ]
-        )
+        # Preparar la solicitud con las instrucciones del sistema
+        prompt = f"{SYSTEM_INSTRUCTION}\n\n{request.texto}"
         
         # Generar el contenido
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=generate_content_config
-        )
+        response = model.generate_content(prompt)
         
         # Extraer el código LaTeX generado
         latex_code = response.text
@@ -242,44 +216,21 @@ async def startup_event():
 
 async def content_generator(request_text, api_key):
     """Generador de contenido para streaming de respuestas."""
-    # Crear un cliente de Gemini
-    client = genai.Client(api_key=api_key)
+    # Configurar la API
+    genai.configure(api_key=api_key)
     
-    # Definir el modelo a utilizar
-    model_name = "gemini-2.0-flash-thinking-exp-01-21"
+    # Crear modelo generativo
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
     
-    # Preparar el contenido de la solicitud
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=request_text)
-            ]
-        )
-    ]
+    # Preparar el prompt completo
+    prompt = f"{SYSTEM_INSTRUCTION}\n\n{request_text}"
     
-    # Configurar la generación de contenido
-    generate_content_config = types.GenerateContentConfig(
-        temperature=0.1,
-        top_p=0.95,
-        top_k=64,
-        max_output_tokens=65536,
-        response_mime_type="text/plain",
-        system_instruction=[
-            types.Part.from_text(text=SYSTEM_INSTRUCTION)
-        ]
-    )
-    
-    # Generar el contenido en streaming
-    stream = client.models.generate_content_stream(
-        model=model_name,
-        contents=contents,
-        config=generate_content_config
-    )
+    # Generar respuesta en streaming
+    stream = model.generate_content(prompt, stream=True)
     
     # Devolver chunks de respuesta
     for chunk in stream:
-        if chunk.text:
+        if hasattr(chunk, 'text'):
             yield chunk.text
 
 @app.post("/convertir-stream")
